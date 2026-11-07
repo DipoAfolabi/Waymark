@@ -1,5 +1,7 @@
 # Waymark
 
+**Use it now: https://dipoafolabi.github.io/Waymark/**
+
 A goal planner: goals with weekly targets and milestones, a calendar that finds open time, reminders, and a weekly review.
 
 It's a static site (HTML, CSS and JavaScript, no build step and no server), so it runs anywhere that can serve files.
