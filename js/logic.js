@@ -517,6 +517,99 @@ const Logic = (() => {
     return n;
   }
 
+  /* ---------- Example week ----------
+     Realistic data around today, so a first-time visitor can see every view working.
+     Every record is tagged sample: true, so clearSample can remove exactly these. */
+  function sampleWeek(state, now) {
+    const cur = startOfWeek(now.date, state.settings.weekStart);
+    const isPast = (date, start) => date < now.date || (date === now.date && start + 30 <= now.min);
+
+    // A weekly habit with three weeks of history, so the streak and heat map have something to show.
+    const gym = {
+      id: uid(), title: 'Get stronger', type: 'recurring', perWeek: 3, sessionMinutes: 45, sessionName: 'Workout',
+      deadline: null, target: '', repeat: true, milestones: [], completedAt: null,
+      createdAt: addDays(cur, -21), color: nextGoalColor(state), repeatFilled: {}, sample: true,
+    };
+    state.goals.push(gym);
+    const upcoming = [0, 1].flatMap((w) => [0, 2, 4].map((o) => addDays(cur, 7 * w + o))).filter((d) => d >= now.date);
+    const best = upcoming.length ? commonStart(state, upcoming, 45, 1020, 1260, now) : null;
+    const gymStart = best ? best.start : 1080;
+    for (let w = -3; w <= 1; w++) {
+      const week = addDays(cur, 7 * w);
+      createSessions(state, gym, [0, 2, 4].map((o) => ({ date: addDays(week, o), start: w < 0 ? 1080 : gymStart, duration: 45 })));
+      gym.repeatFilled[week] = true;
+    }
+
+    // A one-time goal with milestones, some tasks scheduled and one left to place.
+    const sql = {
+      id: uid(), title: 'Learn SQL', type: 'once', target: 'Comfortable writing joins and designing tables',
+      perWeek: 3, sessionMinutes: 60, sessionName: '', deadline: addDays(now.date, 30), repeat: false,
+      milestones: [
+        { id: uid(), title: 'Finish the joins module', date: addDays(now.date, 7), done: false, doneAt: null },
+        { id: uid(), title: 'Build a practice database', date: addDays(now.date, 21), done: false, doneAt: null },
+      ],
+      completedAt: null, createdAt: addDays(cur, -14), color: nextGoalColor(state), sample: true,
+    };
+    state.goals.push(sql);
+    const [m1, m2] = sql.milestones;
+    const task = (title, estimate, extra = {}) => {
+      const t = { id: uid(), goalId: sql.id, title, estimate, due: null, done: false, doneAt: null, session: false, milestoneId: null, sample: true, ...extra };
+      state.tasks.push(t);
+      return t;
+    };
+    task('Read up on the types of JOIN', 30, { milestoneId: m1.id, done: true, doneAt: addDays(now.date, -9) });
+    task('Review how indexes work', 30, { done: true, doneAt: addDays(now.date, -5) });
+    const practice = task('Practise inner and left joins', 45, { milestoneId: m1.id });
+    const queries = task('Write 10 practice queries', 60, { milestoneId: m1.id });
+    task('Sketch tables for a recipe database', 45, { milestoneId: m2.id, due: addDays(now.date, 10) });
+    // Leave at least an hour before the first one, so nothing feels due the moment it appears.
+    const later = now.min + 60 < 1440 ? { date: now.date, min: now.min + 60 } : { date: addDays(now.date, 1), min: 0 };
+    for (const t of [practice, queries]) {
+      const slot = suggest(state, { duration: t.estimate, from: later.date, days: 7, now: later, limit: 1 })[0];
+      if (slot) scheduleTask(state, t.id, { ...slot, duration: t.estimate });
+    }
+
+    // One ordinary event later this week.
+    for (let i = 1; i <= 6; i++) {
+      const d = addDays(now.date, i);
+      const w = state.settings.availability[weekday(d)];
+      if (!w.on) continue;
+      const pick = commonStart(state, [d], 60, Math.max(w.start, 600), Math.min(w.end, 1080), now);
+      if (pick && pick.free) {
+        state.events.push({ id: uid(), title: 'Coffee with a friend', date: d, start: pick.start, duration: 60, recurrence: null, exceptions: {}, sample: true });
+        break;
+      }
+    }
+
+    // A few everyday wins over the last three weeks, for the heat map.
+    [['Tidy up email inbox', 2], ['Plan meals for the week', 4], ['Update resume', 6], ['Call the bank', 8], ['Back up phone photos', 11], ['Renew library books', 13], ['Clean out the closet', 16], ['Pay phone bill', 19]]
+      .forEach(([title, ago]) => state.tasks.push({ id: uid(), goalId: null, title, estimate: 30, due: null, done: true, doneAt: addDays(now.date, -ago), session: false, milestoneId: null, sample: true }));
+
+    // Mark everything already in the past as done, then tag what createSessions and scheduleTask made.
+    for (const t of state.tasks) {
+      if (t.goalId === gym.id) t.sample = true;
+      const e = blockOf(state, t.id);
+      if (e) e.sample = true;
+      if (t.goalId === gym.id && e && isPast(e.date, e.start)) { t.done = true; t.doneAt = e.date; }
+    }
+    syncMilestones(state, now.date);
+    return { goals: 2 };
+  }
+
+  const isSample = (r) => !!(r && r.sample);
+  const hasSample = (state) => state.goals.some(isSample) || state.tasks.some(isSample) || state.events.some(isSample);
+
+  // Removes example records only, and anything that belongs to an example goal.
+  function clearSample(state, today) {
+    const goals = new Set(state.goals.filter(isSample).map((g) => g.id));
+    state.goals = state.goals.filter((g) => !goals.has(g.id));
+    const tasks = new Set(state.tasks.filter((t) => isSample(t) || goals.has(t.goalId)).map((t) => t.id));
+    state.tasks = state.tasks.filter((t) => !tasks.has(t.id));
+    state.events = state.events.filter((e) => !isSample(e) && !tasks.has(e.taskId));
+    for (const t of state.tasks) if (goals.has(t.goalId)) t.goalId = null;
+    syncMilestones(state, today);
+  }
+
   /* ---------- Weekly review ---------- */
   function weekReview(state, weekStart, today) {
     const end = addDays(weekStart, 6);
@@ -575,9 +668,11 @@ const Logic = (() => {
   function dueReminders(state, now) {
     const r = reminderSettings(state);
     const out = [];
+    // Example records never alert: they're there to look at, not to act on.
+    const sampleEvents = new Set(state.events.filter((e) => e.sample).map((e) => e.id));
     if (r.on) {
       for (const i of instances(state, now.date, now.date)) {
-        if (i.done) continue;
+        if (i.done || sampleEvents.has(i.eventId)) continue;
         if (now.min >= i.start - r.lead && now.min < i.start + Math.min(GRACE, i.duration)) {
           out.push({ id: `b:${i.key}:${i.date}:${i.start}`, kind: 'block', title: i.title || 'Untitled event', start: i.start, end: i.end, taskId: i.taskId, key: i.key, date: i.date });
         }
@@ -585,7 +680,7 @@ const Logic = (() => {
     }
     if (r.due && now.min >= r.dueAt) {
       for (const t of state.tasks) {
-        if (!t.done && t.due === now.date) out.push({ id: `d:${t.id}:${now.date}`, kind: 'due', title: t.title, taskId: t.id, date: now.date });
+        if (!t.done && !t.sample && t.due === now.date) out.push({ id: `d:${t.id}:${now.date}`, kind: 'due', title: t.title, taskId: t.id, date: now.date });
       }
     }
     return out;
@@ -595,7 +690,8 @@ const Logic = (() => {
   function nextReminder(state, now) {
     const r = reminderSettings(state);
     if (!r.on) return null;
-    const next = instances(state, now.date, now.date).find((i) => !i.done && i.start - r.lead > now.min);
+    const sampleEvents = new Set(state.events.filter((e) => e.sample).map((e) => e.id));
+    const next = instances(state, now.date, now.date).find((i) => !i.done && !sampleEvents.has(i.eventId) && i.start - r.lead > now.min);
     return next ? { title: next.title || 'Untitled event', start: next.start, at: Math.max(0, next.start - r.lead) } : null;
   }
 
@@ -633,6 +729,7 @@ const Logic = (() => {
     removeTask, deleteGoal, taskWeekDate, sessionsInWeek, recurringProgress, taskProgress, overdue,
     unscheduled, weekReview, planReschedule, layoutDay, reminderSettings, dueReminders, nextReminder, repeatTemplate, carryForward, cleanPlan, resolvePlan, applyPlan,
     GOAL_COLORS, goalColor, nextGoalColor, weekStreak, activityByDay, dayStreak,
+    sampleWeek, hasSample, clearSample,
   };
   return api;
 })();

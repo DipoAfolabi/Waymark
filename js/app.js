@@ -160,7 +160,11 @@
 
     const doneToday = schedule.filter((i) => i.taskId && i.done).length;
     const taskBlocks = schedule.filter((i) => i.taskId).length;
-    return `
+    const sampleNote = L.hasSample(state) && ui.sampleBanner !== false
+      ? `<div class="sample-banner" role="status"><span class="sample-mark" aria-hidden="true"></span><p>You're looking at an example week.</p>
+          <button class="btn small" data-act="clear-sample">Clear example data</button>
+          <button class="btn small ghost icon" data-act="hide-sample-banner" aria-label="Hide this message">×</button></div>` : '';
+    return `${sampleNote}
     <header class="page-head today-head">
       <svg class="topo" viewBox="0 0 300 140" aria-hidden="true" focusable="false">${TOPO}</svg>
       <div><p class="greeting">${greeting(now.min)}</p><h1>${fmtDate(today, { weekday: 'long', month: 'long', day: 'numeric' })}</h1>
@@ -1021,6 +1025,62 @@
     };
   }
 
+  /* ---------- First-run welcome ----------
+     Opens once per device for someone with no data yet; Settings → Help reopens it. */
+  const WELCOME_KEY = 'waymark.welcome.v1';
+  const welcomeSeen = () => { try { return localStorage.getItem(WELCOME_KEY) === '1'; } catch { return false; } };
+  const markWelcomeSeen = () => { try { localStorage.setItem(WELCOME_KEY, '1'); } catch { /* shows again next visit */ } };
+  let welcomeShown = false;
+
+  function openWelcome() {
+    welcomeShown = true;
+    const privacy = Store.synced
+      ? 'Your plans sync privately to your Claude account, on any device where you open Waymark signed in.'
+      : 'Your plans are saved in this browser only. Nothing is sent anywhere. Use Settings → Export to back them up.';
+    openSheet(`<form class="sheet-form welcome" data-form="welcome">
+      ${sheetHead('Welcome to Waymark')}
+      <p class="welcome-lede">Plan your goals, give them real time on your calendar, and see your progress add up.</p>
+      <ol class="welcome-steps">
+        <li><span class="welcome-num gc-0" aria-hidden="true">1</span><div><b>Set a goal</b><p>Either one you finish once, or a weekly habit.</p></div></li>
+        <li><span class="welcome-num gc-5" aria-hidden="true">2</span><div><b>Give it time on the calendar</b><p>Waymark finds open slots around what you already have.</p></div></li>
+        <li><span class="welcome-num gc-3" aria-hidden="true">3</span><div><b>Check things off</b><p>Watch your streaks grow and your weeks fill in.</p></div></li>
+      </ol>
+      <p class="note welcome-privacy">${esc(privacy)}</p>
+      <div class="sheet-actions welcome-actions">
+        <button type="button" class="btn" data-act="welcome-blank">Start with a blank planner</button>
+        <button type="button" class="btn primary" data-act="welcome-sample">Load an example week</button>
+      </div>
+    </form>`);
+    sheet._submit = () => {};
+    // However it closes (a button, the ×, Escape or a click outside), it counts as seen.
+    sheet.addEventListener('close', markWelcomeSeen, { once: true });
+    const first = $('[data-act="welcome-sample"]', sheet);
+    if (first) first.focus();
+  }
+
+  function maybeWelcome() {
+    if (welcomeShown || !Store.ready || Store.issue === 'unreachable' || Store.issue === 'stopped') return;
+    const st = S();
+    if (st.goals.length || st.tasks.length || st.events.length) { welcomeShown = true; return; }
+    if (welcomeSeen() || sheet.open) return;
+    openWelcome();
+  }
+
+  function loadSample() {
+    markWelcomeSeen();
+    closeSheet();
+    Store.commit((s) => L.sampleWeek(s, L.clock()));
+    ui.sampleBanner = true;
+    if (location.hash && location.hash !== '#today') location.hash = '#today'; else render();
+    toast('Example week added');
+  }
+
+  function clearSample() {
+    Store.commit((s) => L.clearSample(s, L.clock().date));
+    closeSheet();
+    toast('Example data cleared');
+  }
+
   /* ---------- Appearance ----------
      Kept per device: a phone can stay dark while a work laptop stays light. */
   const THEME_KEY = 'waymark.theme';
@@ -1094,6 +1154,10 @@
         <option value="1" ${st.weekStart === 1 ? 'selected' : ''}>Monday</option>
         <option value="0" ${st.weekStart === 0 ? 'selected' : ''}>Sunday</option></select></label>
       ${onlyAvailability ? '' : remindersFields()}
+      ${onlyAvailability ? '' : `<div class="field"><span>Help</span>
+        <p class="sub" style="font-weight:400">See the quick tour again${L.hasSample(S()) ? ', or remove the example week' : ', or load an example week to explore'}.</p>
+        <div class="btn-row"><button type="button" class="btn" data-act="show-welcome">Show welcome</button>
+        ${L.hasSample(S()) ? '<button type="button" class="btn danger" data-act="clear-sample">Clear example data</button>' : ''}</div></div>`}
       ${onlyAvailability ? '' : `<div class="field"><span>Backup</span>
         <p class="sub" style="font-weight:400">${Store.synced ? 'Your data syncs privately to your Claude account, on any device where you open Waymark signed in. Export a file for an extra copy.' : 'Your data lives in this browser only. Export a file to back it up or move it to another device.'}</p>
         <div class="btn-row"><button type="button" class="btn" data-act="export">Export</button>
@@ -1661,6 +1725,11 @@ Line: ${JSON.stringify(text)}`;
 
   /* ---------- Actions ---------- */
   const actions = {
+    'welcome-sample'() { loadSample(); },
+    'welcome-blank'() { markWelcomeSeen(); closeSheet(); const t = $('#quick-title'); if (t) t.focus(); },
+    'show-welcome'() { openWelcome(); },
+    'clear-sample'() { clearSample(); },
+    'hide-sample-banner'() { ui.sampleBanner = false; render(); },
     'smart-stop'() { if (smartCtl) smartCtl.abort(); else closeSheet(); },
     'smart-back'() { if (sheet._back) sheet._back(); },
     'toggle-repeat'(d) {
@@ -1943,6 +2012,7 @@ Line: ${JSON.stringify(text)}`;
     if (focusSel) { const el = $(focusSel, main); if (el) el.focus({ preventScroll: true }); }
     tickReminders();
     autoCarry();
+    maybeWelcome();
   }
 
   window.addEventListener('hashchange', () => { ui.calScrollPending = true; render(); window.scrollTo(0, 0); });

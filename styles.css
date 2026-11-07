@@ -533,3 +533,31 @@ h2 .goal-dot { width: 7px; height: 18px; margin-right: 10px; vertical-align: -2p
 /* Appearance setting: data-theme on <html> overrides the system choice */
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
+
+/* ---------- First-run welcome ---------- */
+.welcome .sheet-head h2 { font-size: 1.6rem; letter-spacing: -.025em; }
+.welcome-lede { font-size: 1.02rem; color: var(--text); max-width: 46ch; }
+.welcome-steps { display: grid; gap: 14px; margin: 2px 0; }
+.welcome-steps li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
+.welcome-steps b { font-family: var(--font-display); font-size: 1.02rem; font-weight: 650; letter-spacing: -.01em; }
+.welcome-steps p { color: var(--muted); font-size: .92rem; margin-top: 1px; }
+/* Each step is numbered on its own blaze */
+.welcome-num {
+  width: 26px; height: 38px; border-radius: 5px; display: grid; place-items: center; margin-top: 1px;
+  background: var(--g); color: var(--surface); font-family: var(--font-display); font-weight: 750; font-size: .95rem;
+}
+.welcome-privacy { background: var(--sunken); color: var(--muted); }
+.welcome-actions { justify-content: space-between; }
+@media (max-width: 420px) { .welcome-actions .btn { flex: 1 1 100%; } .welcome-actions .btn.primary { order: -1; } }
+
+/* Example-data banner on Today */
+.sample-banner {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 18px; padding: 8px 8px 8px 14px;
+  border-radius: var(--r-md); background: var(--blaze-soft); color: var(--blaze-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blaze) 35%, transparent);
+}
+.sample-banner p { flex: 1 1 180px; font-weight: 600; font-size: .92rem; }
+.sample-mark { width: 6px; height: 16px; border-radius: 2px; background: var(--blaze); flex: none; }
+.sample-banner .btn.small:not(.ghost) { background: var(--raised); border-color: color-mix(in srgb, var(--blaze) 45%, var(--line)); color: var(--text); }
+.sample-banner .btn.ghost { color: var(--blaze-text); width: 34px; }
+.sample-banner .btn.ghost:hover { background: color-mix(in srgb, var(--blaze) 18%, transparent); }
